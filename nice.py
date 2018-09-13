@@ -1,5 +1,5 @@
 #! -*- coding: utf-8 -*-
-# Keras implement of NICE
+# Keras implement of NICE (Non-linear Independent Components Estimation)
 # https://arxiv.org/abs/1410.8516
 
 from keras.layers import *
@@ -24,21 +24,15 @@ class Shuffle(Layer):
     """打乱层，提供两种方式打乱输入维度
     一种是直接反转，一种是随机打乱，默认是直接反转维度
     """
-    def __init__(self, idxs=None, mode='inverse', **kwargs):
+    def __init__(self, idxs=None, mode='reverse', **kwargs):
         super(Shuffle, self).__init__(**kwargs)
         self.idxs = idxs
         self.mode = mode
     def call(self, inputs):
         v_dim = K.int_shape(inputs)[-1]
         if self.idxs == None:
-            '''
-    In case anyone else runs into this problem, there is an issue with tf.gather(tf.shape(input_), 
-    range(ndim-1)) using python 3 because range(ndim-1) cannot be automatically converted to a tensor. 
-    Replacing it with list(range(ndim-1)) to explicitly cast it to a list resolves that specific error        
-            '''
-            #self.idxs = range(v_dim)
             self.idxs = list(range(v_dim))
-            if self.mode == 'inverse':
+            if self.mode == 'reverse':
                 self.idxs = self.idxs[::-1]
             elif self.mode == 'random':
                 np.random.shuffle(self.idxs)
@@ -114,9 +108,9 @@ class Scale(Layer):
         self.kernel = self.add_weight(name='kernel', 
                                       shape=(1, input_shape[1]),
                                       initializer='glorot_normal',
-                                      regularizer=lambda x: -K.sum(x), # 行列式对数可以作为正则项加入
                                       trainable=True)
     def call(self, inputs):
+        self.add_loss(-K.sum(self.kernel)) # 对数行列式
         return K.exp(self.kernel) * inputs
     def inverse(self):
         scale = K.exp(-self.kernel)
@@ -152,6 +146,9 @@ basic_model_4 = build_basic_model(original_dim//2)
 
 x_in = Input(shape=(original_dim,))
 x = x_in
+
+# 给输入加入负噪声
+x = Lambda(lambda s: K.in_train_phase(s-0.01*K.random_uniform(K.shape(s)), s))(x)
 
 x = shuffle1(x)
 x1,x2 = split(x)
@@ -242,7 +239,7 @@ figure = np.zeros((digit_size * n, digit_size * n))
 
 for i in range(n):
     for j in range(n):
-        z_sample = np.array(np.random.randn(1, original_dim)) * 0.8 # 标准差取0.8而不是1
+        z_sample = np.array(np.random.randn(1, original_dim)) * 0.75 # 标准差取0.75而不是1
         x_decoded = decoder.predict(z_sample)
         digit = x_decoded[0].reshape(digit_size, digit_size)
         figure[i * digit_size: (i + 1) * digit_size,
